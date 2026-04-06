@@ -1,0 +1,31 @@
+---
+metadata:
+  clientId: CLIENT_001
+  clientName: Metro Parking Authority
+  documentType: greeting
+  version: "1.0"
+  lastUpdated: "2025-02-01"
+---
+
+# Metro Parking Authority - Greeting and Introduction
+
+## Welcome Message
+Welcome to Metro Parking Authority's automated payment and information system. We manage parking violations for the City of Metro and surrounding areas.
+
+## Available Services
+As a Metro Parking Authority customer, you can:
+- Check your current balance and violation details
+- Make a payment on one or more violations
+- Submit a dispute for a violation you believe was issued in error
+- Check the status of an existing dispute
+- Request information about payment plans
+
+## Business Hours
+- Monday through Friday: 8:00 AM to 6:00 PM Eastern
+- Saturday: 9:00 AM to 1:00 PM Eastern
+- Sunday: Closed
+
+## Contact Information
+- Website: www.metroparking.gov
+- Email: support@metroparking.gov
+- Mailing Address: 123 Main Street, Metro City, ST 12345

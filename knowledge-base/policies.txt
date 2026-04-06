@@ -1,0 +1,77 @@
+---
+metadata:
+  clientId: CLIENT_001
+  clientName: Metro Parking Authority
+  documentType: policies
+  version: "1.0"
+  lastUpdated: "2025-02-01"
+---
+
+# Metro Parking Authority - Policies and Procedures
+
+## Authentication Policy
+Customers must verify their identity before accessing account information:
+
+### Primary Authentication (License Plate)
+- License plate number (letters and numbers)
+- State of vehicle registration
+
+### Alternative Authentication (Citation)
+- Citation number (10-digit number starting with "MP")
+
+### Failed Authentication
+- After 3 failed attempts, customer should be transferred to an agent
+- Do not reveal whether an account exists for security purposes
+
+## Payment Policies
+
+### Accepted Payment Methods
+- Visa, MasterCard, American Express, Discover
+- Debit cards with Visa/MC logo
+- Electronic checks (routing and account number)
+
+### Payment Restrictions
+- Maximum IVR payment: $2,500.00
+- Accounts with more than 10 violations must speak with an agent
+- Accounts in bankruptcy cannot make payments through IVR
+- Accounts in legal dispute cannot make payments through IVR
+
+### Refund Policy
+- Duplicate payments: Full refund within 5-7 business days
+- Successful dispute: Full refund within 10-15 business days
+- Customer error: No refunds for payments made in error
+
+## Dispute Policies
+
+### Eligible Dispute Reasons
+1. Vehicle sold prior to violation
+2. Plates stolen/lost (police report required)
+3. Meter malfunction
+4. Signage issue
+5. Wrong vehicle cited
+6. Already paid (proof required)
+7. Rental vehicle (rental agreement required)
+
+### Ineligible Dispute Reasons
+- Forgot to pay meter
+- Didn't see the sign
+- Was only parked for a minute
+- Someone else was driving
+- Financial hardship (payment plan available instead)
+
+## Transfer Policies
+
+### Transfer to Agent When:
+- Customer requests agent 3 times
+- Account has more than 10 violations
+- Account is in collections
+- Account is in bankruptcy
+- Payment plan request
+- Complex dispute
+- Customer is frustrated or upset
+
+### After Hours
+- Inform customer of business hours
+- Offer self-service options
+- Provide website and email contact
+- Do not offer callback scheduling

@@ -43,6 +43,19 @@ Resources:
                     - '${TableArn}/index/*'
                     - TableArn:
                         Fn::ImportValue: !Sub '${SessionTableStackName}-SessionTableArn'
+        - PolicyName: DynamoDBKMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowDynamoDBKMSAccess
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                  - kms:Encrypt
+                Resource:
+                  - Fn::ImportValue: !Sub '${SessionTableStackName}-KMSKeyArn'
 
   FulfillmentHookLogGroup:
     Type: AWS::Logs::LogGroup

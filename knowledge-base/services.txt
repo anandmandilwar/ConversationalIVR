@@ -1,0 +1,60 @@
+---
+metadata:
+  clientId: CLIENT_001
+  clientName: Metro Parking Authority
+  documentType: services
+  version: "1.0"
+  lastUpdated: "2025-02-01"
+---
+
+# Metro Parking Authority - Available Services
+
+## Balance Inquiry
+Customers can check their balance by providing:
+- License plate number AND state of registration
+- OR Citation number (found on the violation notice)
+
+The system will display:
+- Total amount due
+- Number of outstanding violations
+- Individual violation details including date, location, and amount
+
+## Payment Processing
+Metro Parking Authority accepts:
+- Credit cards (Visa, MasterCard, American Express, Discover)
+- Debit cards
+- Electronic checks (ACH)
+
+Payment options:
+- Pay all violations at once
+- Select individual violations to pay
+- Minimum payment: $1.00
+- Maximum IVR payment: $2,500.00 (larger amounts must be paid online or in person)
+
+### Payment Fees
+- Credit/Debit card: 2.5% convenience fee (minimum $1.50)
+- Electronic check: $1.00 flat fee
+
+## Dispute Submission
+Customers may dispute a violation for the following reasons:
+- Vehicle was sold before violation date
+- License plate was stolen or lost
+- Meter malfunction
+- Signage not visible
+- Wrong vehicle cited
+- Already paid
+
+Required information for disputes:
+- Citation number
+- Reason for dispute
+- Supporting documentation description (to be mailed or uploaded online)
+
+Dispute processing time: 10-15 business days
+
+## Payment Plans
+Payment plans are available for balances over $200:
+- Minimum 3 monthly payments
+- Maximum 12 monthly payments
+- $25 setup fee
+- Automatic payment required
+- Payment plans must be set up by speaking with an agent

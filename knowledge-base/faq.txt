@@ -1,0 +1,62 @@
+---
+metadata:
+  clientId: CLIENT_001
+  clientName: Metro Parking Authority
+  documentType: faq
+  version: "1.0"
+  lastUpdated: "2025-02-01"
+---
+
+# Metro Parking Authority - Frequently Asked Questions
+
+## Payment Questions
+
+### Q: How long do I have to pay my violation?
+A: You have 30 days from the issue date to pay the original fine amount. After 30 days, a $25 late fee is added. After 60 days, the violation may be sent to collections and additional fees may apply.
+
+### Q: Can I pay part of what I owe?
+A: Yes, you can make partial payments. However, your account will remain outstanding until the full balance is paid. Late fees will continue to accrue on unpaid amounts.
+
+### Q: What if my payment doesn't go through?
+A: If your payment fails, you'll receive an error message. Please verify your card information and try again, or try a different payment method. Failed payments do not stop late fees from accruing.
+
+### Q: Will I receive a receipt?
+A: Yes, a confirmation number will be provided at the end of your call. You can also request an email receipt by providing your email address, or view receipts online at www.metroparking.gov.
+
+## Violation Questions
+
+### Q: I don't recognize this violation. What should I do?
+A: First, verify the license plate number and date. If you believe the violation was issued in error, you may submit a dispute. Common reasons include: vehicle was sold, plates were stolen, or the meter malfunctioned.
+
+### Q: What happens if I don't pay?
+A: Unpaid violations may result in:
+- Late fees ($25 after 30 days)
+- Vehicle registration hold
+- Boot or tow of vehicle
+- Referral to collections agency
+- Negative credit reporting
+
+### Q: Can I see a photo of my violation?
+A: Photos are not available through the phone system. Please visit www.metroparking.gov or request photos by mail.
+
+## Dispute Questions
+
+### Q: How long does a dispute take?
+A: Disputes are typically reviewed within 10-15 business days. You will receive a written response by mail.
+
+### Q: What happens while my dispute is pending?
+A: Late fees are paused while a dispute is under review. However, if your dispute is denied, you will be responsible for the full amount including any fees that would have accrued.
+
+### Q: Can I dispute a violation if I already paid it?
+A: No, payment is considered an admission of liability. Please submit disputes before making payment.
+
+## General Questions
+
+### Q: How do I update my address?
+A: Address updates must be made through the DMV. Metro Parking Authority uses DMV records to send violation notices.
+
+### Q: Can someone else pay my violation?
+A: Yes, anyone can make a payment as long as they have the citation number or license plate information.
+
+### Q: Do you offer senior or veteran discounts?
+A: Metro Parking Authority does not offer discounts on parking violations. However, certain disability parking exemptions may apply. Please speak with an agent for details.

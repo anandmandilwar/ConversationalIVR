@@ -39,6 +39,23 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ClientConfigTableName}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ClientConfigTableName}/index/*'
+        - PolicyName: DynamoDBKMSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowDynamoDBKMSAccess
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                  - kms:Encrypt
+                Resource:
+                  - !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+                Condition:
+                  ForAnyValue:StringLike:
+                    kms:ViaService:
+                      - !Sub 'dynamodb.${AWS::Region}.amazonaws.com'
 
   # Log Group
   LambdaLogGroup:

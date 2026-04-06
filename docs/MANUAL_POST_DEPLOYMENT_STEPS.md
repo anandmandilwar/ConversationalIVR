@@ -41,28 +41,195 @@ The orchestration prompt needs to include instructions for:
 
 ---
 
-## Step 3: Update Escalate Tool Input Schema on AI Agent
+## Step 3: Update Escalate Tool Input Schema and Instructions on AI Agent
 
 **Template:** AI Agent  
 **Resource:** OrchestrationAIAgent → Escalate tool
 
-Current schema has only `reason` field. Must be updated to include:
+The CFN-deployed Escalate tool has a minimal schema with only a `reason` field. It must be updated manually via the Amazon Q in Connect console with the full schema, instructions, and examples.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `escalationReason` | string | Category code: `PAYMENT_TRANSFER`, `CUSTOMER_REQUEST`, etc. |
-| `customerIntent` | string | What the customer wants to accomplish |
-| `escalationSummary` | string | Detailed context for receiving agent |
-| `sentiment` | string | Customer emotional state |
+### Input Schema
 
-These fields are read by:
-- QinConnectDialogHook Lambda (detects `PAYMENT_TRANSFER`)
-- Connect flow (routes based on `Tool` attribute)
-- Agent screen pop (displays escalation context)
+Delete the existing schema and replace with:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "customerIntent": {
+      "type": "string",
+      "description": "A brief phrase (10-15words) describing what the customer wants to accomplish"
+    },
+    "sentiment": {
+      "type": "string",
+      "description": "Customer's emotional state during the conversation",
+      "enum": [
+        "positive",
+        "neutral",
+        "frustrated"
+      ]
+    },
+    "escalationSummary": {
+      "type": "string",
+      "description": "Detailed summary for the human agent including what the customer asked for, what was attempted, and why escalation is needed",
+      "maxLength": 500
+    },
+    "escalationReason": {
+      "type": "string",
+      "description": "Category for the escalation reason",
+      "enum": [
+        "complex_booking",
+        "technical_issue",
+        "customer_frustration",
+        "policy_exception",
+        "out_of_scope",
+        "other"
+      ]
+    }
+  },
+  "required": [
+    "escalationReason",
+    "escalationSummary",
+    "customerIntent",
+    "sentiment"
+  ]
+}
+```
+
+### Instructions
+
+Replace the existing instruction with:
+
+```
+Escalate to a human agent when:
+
+**Volume & Complexity Triggers:**
+1. Request involves more than 3 vehicles or license plates
+2. Request involves more than 5 violations to address
+3. Request involves multiple accounts (personal + business, duplicate accounts needing merger)
+4. Fleet or commercial account management is needed
+
+**Specialized Expertise Required:**
+5. Estate settlement or deceased account holder situations
+6. Commercial account setup with custom requirements (emergency exemptions, multi-user access, custom invoicing)
+7. Rental car billing disputes involving multiple rental companies
+8. Vehicle ownership transfers for multiple vehicles
+9. Account migration or system transition issues
+10. Requests requiring legal documentation (court cases, probate, tax audits)
+
+**Multi-Domain Coordination:**
+11. Combined parking and toll issues in one request
+12. Disputes requiring evidence review (dashcam footage, photos, documents)
+13. Payment investigations requiring bank coordination
+14. Requests needing coordination across multiple departments
+
+**System & Satisfaction Issues:**
+15. Multiple tools fail or return errors repeatedly
+16. Knowledge base lacks required policy information
+17. Customer expresses frustration, dissatisfaction, or explicitly requests a human
+18. You cannot provide adequate assistance with available tools
+
+When escalating, acknowledge the complexity or importance of their request, briefly summarize what you understood (to show you listened), and reassure them that the specialist will have all the context to help efficiently.
+```
+
+### Examples
+
+Add the following examples to the Escalate tool:
+
+**Good example — Complex coordination request:**
+```
+<message>
+I understand you had a difficult day - a parking ticket from an app issue and a toll violation from police-directed traffic, and you have dashcam footage of both. Since this involves both our parking and toll systems with video evidence to review, plus the documentation you need for work reimbursement, let me connect you with a specialist who can coordinate everything and get you the proper receipts.
+</message>
+```
+
+**Good example — Technical difficulties:**
+```
+<message>
+I apologize, but I'm experiencing technical difficulties right now. To make sure you get accurate information, let me connect you with a representative who can help you directly right away.
+</message>
+```
+
+**Good example — Frustrated customer:**
+```
+<message>
+I'm really sorry for all the trouble you've been through. That's not the experience you should have. Let me get you to someone who can resolve this and make sure this gets handled properly.
+</message>
+```
+
+**Good example — Complex fleet coordination:**
+```
+<message>
+Setting up a fleet account with multiple ownership types, separate billing categories, and custom access levels is exactly what our commercial accounts team handles. They can coordinate the transponder shipments to your three locations and configure everything to meet your two-week deadline. Let me connect you with a business account specialist right away.
+</message>
+```
+
+**Bad example (avoid — too abrupt, no empathy):**
+```
+<message>
+I can't help with that. Let me transfer you to someone else.
+</message>
+```
 
 ---
 
-## Step 4: Add All Tool Configurations to AI Agent
+## Step 4: Add Retrieve Tool to AI Agent
+
+The RETRIEVE tool is NOT deployed via CloudFormation. It must be added manually via the Amazon Q in Connect console.
+
+### Step 4a: Navigate to Your AI Agent
+
+1. In the Amazon Connect admin console, click **AI agent designer** in the left navigation
+2. Click **AI agents**
+3. Click on your AI Agent deployed as part of the deployment
+4. Click **Edit** in Agent Builder
+
+### Step 4b: Add the Retrieve Tool
+
+1. In the **Tools** section, click the **Add tool** button
+2. For **Namespace**, select **Amazon Connect**
+3. For **Tool**, select **Retrieve**
+4. For **Assistant Association**, select your assistant association from the dropdown
+5. Configure the tool settings:
+
+**Tool name:** `Retrieve`
+
+**Instructions:**
+
+```
+Search the knowledge base using semantic search to find client-specific information about parking violations, tolling, payments, disputes, policies, and procedures.
+
+Rules:
+1. ALWAYS filter by clientId - never return information from other clients
+2. Use multiple searches if the first query doesn't fully answer the question
+3. Only provide information that is explicitly found in the knowledge base
+4. If information is not found, say "I don't have that specific information" and offer agent transfer
+5. Never make assumptions about client policies or procedures
+
+Use this tool to answer questions about: payment methods, fees, dispute eligibility, business hours, late penalties, payment plans, and account policies.
+```
+
+### Step 4c: Add Examples
+
+**Good example — Detailed policy response:**
+```
+<message>
+Metro Parking Authority accepts several payment methods. You can pay with credit cards including Visa, MasterCard, American Express, and Discover. We also accept debit cards and electronic checks. Please note there is a small convenience fee - 2.5% for card payments with a minimum of $1.50, or a flat $1.00 fee for electronic checks. Would you like to make a payment now?.
+</message>
+```
+
+**Good example query:** `"What happens if I don't pay my ticket on time?"`
+
+**Bad example query:** `"don't pay ticket"`
+
+### Step 4d: Save and Publish
+
+1. Click **Add** to add the tool
+2. Click **Publish** to update your agent with the new tool
+
+---
+
+## Step 5: Verify All Tool Configurations on AI Agent
 
 **Template:** AI Agent  
 **Resource:** OrchestrationAIAgent → ToolConfigurations
@@ -86,40 +253,39 @@ Verify all tools are registered with correct ToolName, ToolId, and Instructions:
 
 ---
 
-## Step 5: Update PaymentBotId and PaymentBotAliasId
+## Step 6: Redeploy Payment Handoff Stack with Real Bot IDs
 
-**Template:** Payment Handoff  
-**Resource:** SeedPaymentSession Lambda
+**Template:** Payment Handoff (`02e-payment-handoff-resources.yaml`)  
+**Why:** PaymentCollectionBot is created AFTER this stack deploys. The `PaymentBotId` and `PaymentBotAliasId` parameters default to `PENDING`, which means:
+- The `SeedPaymentSession` Lambda env vars point to `PENDING`
+- The IAM policy grants `lex:PutSession` on `bot-alias/PENDING/PENDING` (useless)
 
-PaymentCollectionBot is created AFTER this stack deploys. The env vars default to `PENDING`.
-
-```bash
-aws lambda update-function-configuration \
-    --function-name ivr-dev-SeedPaymentSession \
-    --environment '{
-        "Variables": {
-            "KMS_KEY_ARN": "",
-            "ENVIRONMENT": "dev",
-            "SESSION_TABLE_NAME": "",
-            "PAYMENT_BOT_ID": "",
-            "PAYMENT_BOT_ALIAS_ID": ""
-        }
-    }' \
-    --region us-east-1
-```
-
-Also update the IAM policy with actual bot ARN:
+**CRITICAL:** This step must be done after `create-payment-bot.sh` completes. Bot IDs are in `payment-bot-config.json`.
 
 ```bash
-aws iam put-role-policy \
-    --role-name ivr-dev-SeedPaymentSessionRole \
-    --policy-name LexPaymentBotAccess \
-    --policy-document '{...with actual bot ARN...}'
+# Get bot IDs from the config file generated by create-payment-bot.sh
+BOT_ID=$(python3 -c "import json; print(json.load(open('payment-bot-config.json'))['botId'])")
+ALIAS_ID=$(python3 -c "import json; print(json.load(open('payment-bot-config.json'))['botAliasId'])")
+
+# Redeploy the stack with real bot IDs
+aws cloudformation deploy --region us-east-1 \
+  --stack-name anycompany-ivr-payment-handoff \
+  --template-file cfn/standalone/02e-payment-handoff-resources.yaml \
+  --capabilities CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset \
+  --parameter-overrides \
+    Environment=dev \
+    DynamoDBStackName=anycompany-ivr-dynamodb \
+    SessionTableStackName=anycompany-ivr-session-table \
+    ConnectInstanceArn=arn:aws:connect:us-east-1:${ACCOUNT_ID}:instance/${CONNECT_INSTANCE_ID} \
+    PaymentBotId=$BOT_ID \
+    PaymentBotAliasId=$ALIAS_ID
 ```
+
+This updates both the Lambda env vars AND the IAM policy in one step.
 
 ---
 
-## Step 6: Deploy Actual Lambda Code
+## Step 7: Deploy Actual Lambda Code
 
 All 16 Lambda functions are created with stub/placeholder code. Actual code must be deployed.
 
@@ -151,7 +317,7 @@ aws lambda update-function-code \
 
 ---
 
-## Step 7: Associate Bots with Connect Instance
+## Step 8: Associate Bots with Connect Instance
 
 ParkAndTollBot and PaymentCollectionBot must be associated with the Connect instance.
 
@@ -164,7 +330,7 @@ aws connect associate-bot \
 
 ---
 
-## Step 8: Associate Lambdas with Connect Instance
+## Step 9: Associate Lambdas with Connect Instance
 
 These Lambdas must be associated with Connect:
 
@@ -183,7 +349,7 @@ aws connect associate-lambda-function \
 
 ---
 
-## Step 9: Configure ParkAndTollBot
+## Step 10: Configure ParkAndTollBot
 
 After bot creation:
 
@@ -196,7 +362,7 @@ After bot creation:
 
 ---
 
-## Step 10: Configure PaymentCollectionBot
+## Step 11: Configure PaymentCollectionBot
 
 After bot creation:
 
@@ -206,7 +372,7 @@ After bot creation:
 
 ---
 
-## Step 11: Import/Create Contact Flow
+## Step 12: Import/Create Contact Flow
 
 The Main Flow must be created/imported with correct:
 
@@ -221,7 +387,7 @@ The Main Flow must be created/imported with correct:
 
 ---
 
-## Step 12: Associate Q in Connect with Connect Instance
+## Step 13: Associate Q in Connect with Connect Instance
 
 The Q in Connect assistant must be integrated with the Connect instance.
 
@@ -229,7 +395,7 @@ The Q in Connect assistant must be integrated with the Connect instance.
 
 ---
 
-## Step 13: Upload Knowledge Base Content
+## Step 14: Upload Knowledge Base Content
 
 Upload client-specific KB documents to:
 
@@ -241,7 +407,7 @@ Then sync the knowledge base via Console or CLI.
 
 ---
 
-## Step 14: Seed DynamoDB Test Data
+## Step 15: Seed DynamoDB Test Data
 
 Populate test data in:
 
@@ -256,7 +422,7 @@ python3 scripts/utilities/seed_test_data.py
 
 ---
 
-## Step 15: Claim Phone Number
+## Step 16: Claim Phone Number
 
 Claim a phone number in Connect and associate it with the Main Flow.
 
@@ -264,7 +430,19 @@ Claim a phone number in Connect and associate it with the Main Flow.
 
 ---
 
-## Step 16: End-to-End Test
+## Step 17: Update Client Config with Claimed Phone Number
+
+After claiming a phone number in Step 15, update the client config table so the IVR system maps incoming calls to the correct client.
+
+```bash
+./scripts/utilities/update-client-phone.sh +1XXXXXXXXXX
+```
+
+Replace `+1XXXXXXXXXX` with the phone number claimed in Connect (E.164 format).
+
+---
+
+## Step 18: End-to-End Test
 
 Test the complete flow:
 

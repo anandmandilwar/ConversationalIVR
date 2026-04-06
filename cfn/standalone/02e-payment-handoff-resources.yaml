@@ -301,6 +301,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                  - kms:Encrypt
                 Resource:
                   Fn::ImportValue: !Sub '${SessionTableStackName}-KMSKeyArn'
 
