@@ -3,6 +3,11 @@
 # Creates the ParkAndTollBot Lex V2 bot with AMAZON.QInConnectIntent
 # Version: 2.0 — Fixed: Fulfillment enabled on QInConnect intent (not FallbackIntent)
 #                 Added: Conversation logs, Lambda resource policy for bot-level
+# Version: 2.1 — Fixed: successNextStep changed from FulfillIntent to EndConversation
+#                 FulfillIntent caused Lex to loop instead of returning control to Connect,
+#                 which prevented the payment handoff flow from executing.
+#                 Fixed: Fulfillment enabled on QInConnect intent (not FallbackIntent)
+#                 Added: Conversation logs, Lambda resource policy for bot-level
 
 set -euo pipefail
 
@@ -350,7 +355,7 @@ try:
                 'allowInterrupt': True
             },
             'successNextStep': {
-                'dialogAction': {'type': 'FulfillIntent'}
+                'dialogAction': {'type': 'EndConversation'}
             },
             'failureNextStep': {
                 'dialogAction': {'type': 'EndConversation'}
@@ -622,14 +627,29 @@ lambda_arn = lambda_hook.get('lambdaARN', 'NOT SET')
 print(f"  Alias '{alias_resp.get('botAliasName')}': version={alias_version}")
 print(f"  Alias Lambda: {lambda_arn}")
 
-# Validation checks
+# Verify postFulfillmentStatusSpecification steps
+pfs = fch.get('postFulfillmentStatusSpecification', {})
+success_step = pfs.get('successNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
+failure_step = pfs.get('failureNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
+timeout_step = pfs.get('timeoutNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
+
+print(f"  PostFulfillment steps: success={success_step}, failure={failure_step}, timeout={timeout_step}")
+
+# Validation checks — errors list MUST be defined first
 errors = []
+
 if not fch.get('enabled', False):
     errors.append("Fulfillment NOT enabled on QInConnect intent")
 if lambda_arn == 'NOT SET':
     errors.append("Lambda ARN NOT set on alias locale settings")
 if alias_version != '${BOT_VERSION}':
     errors.append(f"Alias points to v{alias_version}, expected v${BOT_VERSION}")
+if success_step != 'EndConversation':
+    errors.append(f"successNextStep is '{success_step}' — MUST be 'EndConversation' for payment routing")
+if failure_step != 'EndConversation':
+    errors.append(f"failureNextStep is '{failure_step}' — should be 'EndConversation'")
+if timeout_step != 'EndConversation':
+    errors.append(f"timeoutNextStep is '{timeout_step}' — should be 'EndConversation'")
 
 if errors:
     print("")

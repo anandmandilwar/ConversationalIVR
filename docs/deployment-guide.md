@@ -77,10 +77,9 @@ Deploys stacks that require the Connect instance from Phase 1:
 | anycompany-ivr-update-session | 02c-ConnectAssistantUpdateSessionData.yaml |
 | anycompany-ivr-agent-screen-pop | agent-screen-pop-view.yaml |
 
-### ⏸️ Manual Steps Required Before Phase 2 - Follow **Manual-post-phase1-and-phase2-deployment-steps.md**
+### ⏸️ Manual Steps Required Before Phase 2
 
-The script pauses here. Complete the following before pressing ENTER to continue:
-
+The script pauses here. Complete Steps 1–6 in [Manual-post-phase1-and-2-deployment-steps.md](Manual-post-phase1-and-2-deployment-steps.md#post-phase-1-deployment-steps) before pressing ENTER to continue.
 
 ### Phase 2 — AI Agent Configuration
 
@@ -94,8 +93,11 @@ This configures 13 tool definitions (9 MCP + 2 RTC + 2 payment) for the AI agent
 
 ---
 
-## Step 3: Post-Phase 2 Manual Steps - Follow **Manual-post-phase1-and-phase2-deployment-steps.md**
+## Step 3: Post-Phase 2 Manual Steps
 
+Complete Steps 7–22 in [Manual-post-phase1-and-2-deployment-steps.md](Manual-post-phase1-and-2-deployment-steps.md#post-phase-2-deployment-steps). This covers creating the AI agent, setting the default agent, enabling bot management, associating Lambdas, creating Lex bots, importing contact flows, deploying Lambda code, seeding data, and end-to-end testing.
+
+---
 
 ## Troubleshooting Notes
 

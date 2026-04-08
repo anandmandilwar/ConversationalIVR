@@ -52,13 +52,11 @@ ConversationalIVR/
 ├── scripts/                    # Deployment and bot creation scripts
 │   └── utilities/              # Data seeding, validation helpers
 ├── connect-flows/              # Amazon Connect contact flows (JSON)
-├── openapi/                    # API Gateway OpenAPI specification
 ├── ai-agent/                   # AI agent system prompt
 ├── knowledge-base/             # Knowledge base content for RETRIEVE tool
 ├── config/                     # Environment parameter templates
 ├── iam-reference/              # IAM policy snapshots from live environment
 ├── docs/                       # Architecture, deployment, troubleshooting
-└── tests/                      # Unit and integration tests
 ```
 
 ---
@@ -122,7 +120,7 @@ ConversationalIVR/
    ```
 
 5. **Complete post-deployment steps:**
-   See [docs/MANUAL_POST_DEPLOYMENT_STEPS.md](docs/MANUAL_POST_DEPLOYMENT_STEPS.md) for the full 18-step checklist.
+   See [docs/Manual-post-phase1-and-2-deployment-steps.md](docs/Manual-post-phase1-and-2-deployment-steps.md) for the full post-deployment checklist.
 
 ---
 
@@ -366,7 +364,7 @@ The script is safe to run multiple times:
 - [Lambda Handler Mapping](docs/lambda-handlers.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Known Issues](docs/KNOWN_ISSUES.md)
-- [Post-Deployment Steps](docs/MANUAL_POST_DEPLOYMENT_STEPS.md)
+- [Post-Deployment Steps](docs/Manual-post-phase1-and-2-deployment-steps.md)
 
 ---
 

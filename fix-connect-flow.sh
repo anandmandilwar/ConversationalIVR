@@ -236,7 +236,7 @@ else
 fi
 
 # ─── 3b: Replace Lambda ARN placeholders ───────────────────────────────────
-PLACEHOLDER_LAMBDAS=$(grep -oP "arn:aws:lambda:${REGION}:${PLACEHOLDER_ACCOUNT}:function:\K[a-zA-Z0-9_-]+" "${TEMP_FILE}" | sort -u || true)
+PLACEHOLDER_LAMBDAS=$(grep -o "arn:aws:lambda:${REGION}:${PLACEHOLDER_ACCOUNT}:function:[a-zA-Z0-9_-]*" "${TEMP_FILE}" | sed "s|arn:aws:lambda:${REGION}:${PLACEHOLDER_ACCOUNT}:function:||" | sort -u || true)
 
 if [[ -n "${PLACEHOLDER_LAMBDAS}" ]]; then
   while IFS= read -r FUNC_NAME; do

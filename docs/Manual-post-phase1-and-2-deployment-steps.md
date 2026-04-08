@@ -132,15 +132,53 @@ Execute these steps after Phase 2 (`anycompany-ivr-phase2-qagents`) completes.
 
 ---
 
-### Step 7: Update AI Agent Prompt
+### Step 7: Create AI Agent Manually
 
-1. Log in to the Connect Admin interface (or refresh if already logged in)
-2. Navigate to **AI agent designer** → **AI Agents**
-3. Find the agent: `<Instance_Alias>-orchestration-agent`
-4. Click **Edit in Agent Builder**
-5. Edit the AI Prompt and replace it with the content from `ai-agent/Final-System-Prompt-03242026_1230.txt`
-6. Click **Save** then **Publish**
-7. Go back to the Agent → **Add Prompt** → **Add existing AI Prompt** → select the v2 prompt you just saved
+> **Note:** The AI agent auto-deployed by Phase 2 (`<Instance_Alias>-orchestration-agent`) is currently **not working** and can be ignored. You must create a new agent manually using the steps below.
+
+**Create the Agent:**
+
+1. In the Connect Admin interface, click **AI agent designer** in the left navigation
+2. Click **AI agents** to view AI agents
+3. Click **Create AI agent**
+4. Configure:
+   - **Name:** `anycompany-ivr-agent`
+   - **AI Agent type:** Select **Orchestration**
+   - **Copy from existing:** Select **SelfServiceOrchestrator**
+   - **Description:** `AI agent for handling Parking and Tolling Services at AnyCompany`
+5. Click **Create**
+
+**Configure Basic Settings:**
+
+1. Set the **locale:** English (US)
+2. Select the **security profile:** `ParkandToll-AI-Agent` (created in Step 6)
+3. **Save** your AI Agent to apply the security profile
+
+**Add the AI Prompt:**
+
+1. Navigate to the agent's **Prompt** section
+2. Edit the AI Prompt and replace it with the content from `ai-agent/Final-System-Prompt-03242026_1230.txt`
+3. Click **Save** then **Publish**
+4. Go back to the Agent → **Add Prompt** → **Add existing AI Prompt** → select the v2 prompt you just saved and published
+
+**Add MCP Tools:**
+
+1. Click **Add tool** in the **Tools** tab
+2. Select a **Namespace** from the dropdown: `gateway_XXXX-{shortcode}` (your AgentCore gateway)
+3. Select the AI tool from the dropdown
+4. Check the **User Confirmation** toggle if you want the agent to confirm details with the customer before executing
+5. Scroll to the bottom and click **Add**
+6. Repeat for all tools:
+   - `anycompanyDemoIVRApi___applyPaymentResult`
+   - `anycompanyDemoIVRApi___buildPaymentCart`
+   - `anycompanyDemoIVRApi___checkDisputeStatus`
+   - `anycompanyDemoIVRApi___getBalance`
+   - `anycompanyDemoIVRApi___getViolationDetails`
+   - `anycompanyDemoIVRApi___initiatePayment`
+   - `anycompanyDemoIVRApi___lookupByAccount`
+   - `anycompanyDemoIVRApi___lookupByCitation`
+   - `anycompanyDemoIVRApi___lookupByPlate`
+   - `anycompanyDemoIVRApi___submitDispute`
 
 ---
 
@@ -148,8 +186,10 @@ Execute these steps after Phase 2 (`anycompany-ivr-phase2-qagents`) completes.
 
 1. Navigate to **AI agent designer** → **AI Agents**
 2. Scroll to **Default AI Agent Configurations**
-3. In the **Self-service** row, select `<Instance_Alias>-orchestration-agent` from the dropdown
+3. In the **Self-service** row, select **`anycompany-ivr-agent`** (the agent you just created) from the dropdown
 4. Click the checkmark to save
+
+> **Important:** Do NOT select the auto-deployed `<Instance_Alias>-orchestration-agent` — use the manually created `anycompany-ivr-agent` instead.
 
 ---
 
@@ -186,6 +226,8 @@ This associates the following Lambdas:
 
 ### Step 11: Create ParkAndTollBot
 
+> **Note:** Ensure your current working directory is the **project root folder** (where `env.sh` is located).
+
 ```bash
 ./create-park-and-toll-bot.sh
 ```
@@ -198,6 +240,8 @@ Verify the output shows:
 ---
 
 ### Step 12: Create PaymentCollectionBot
+
+> **Note:** Ensure your current working directory is the **project root folder** (where `env.sh` is located).
 
 ```bash
 ./create-payment-bot.sh
@@ -257,10 +301,10 @@ aws cloudformation deploy --region us-east-1 \
 
 ---
 
-### Step 15: Deploy Lambda Code from Local (Script available in the Project root folder)
+### Step 15: Deploy Lambda Code from Local
 
 ```bash
-./update-lambda-code.sh
+./scripts/update-lambda-code.sh
 ```
 
 Verify all 16 functions show ✅ in the final verification table.
@@ -268,6 +312,8 @@ Verify all 16 functions show ✅ in the final verification table.
 ---
 
 ### Step 16: Update initiatePayment Lambda Environment Variable
+
+> **Note:** Make sure to `source env.sh` first so that `$CONNECT_INSTANCE_ID` is available in your shell.
 
 The `CONNECT_INSTANCE_ID` env var may not be set correctly:
 
@@ -317,13 +363,161 @@ Replace `+1XXXXXXXXXX` with the phone number claimed in Step 18 (E.164 format).
 
 ### Step 20: Update Escalate Tool on AI Agent
 
-See [MANUAL_POST_DEPLOYMENT_STEPS.md — Step 3](MANUAL_POST_DEPLOYMENT_STEPS.md#step-3-update-escalate-tool-input-schema-and-instructions-on-ai-agent) for the full input schema, instructions, and examples to configure manually in the console.
+The CFN-deployed Escalate tool has a minimal schema with only a `reason` field. It must be updated manually via the Amazon Q in Connect console with the full schema, instructions, and examples.
+
+**Navigate to the Escalate tool:**
+
+1. In the Connect Admin console, go to **AI agent designer** → **AI agents**
+2. Click on `anycompany-ivr-agent` → **Edit in Agent Builder**
+3. Find the **Escalate** tool and click **Edit**
+
+**Replace the Input Schema with:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "customerIntent": {
+      "type": "string",
+      "description": "A brief phrase (10-15words) describing what the customer wants to accomplish"
+    },
+    "sentiment": {
+      "type": "string",
+      "description": "Customer's emotional state during the conversation",
+      "enum": ["positive", "neutral", "frustrated"]
+    },
+    "escalationSummary": {
+      "type": "string",
+      "description": "Detailed summary for the human agent including what the customer asked for, what was attempted, and why escalation is needed",
+      "maxLength": 500
+    },
+    "escalationReason": {
+      "type": "string",
+      "description": "Category for the escalation reason",
+      "enum": ["complex_booking", "technical_issue", "customer_frustration", "policy_exception", "out_of_scope", "other"]
+    }
+  },
+  "required": ["escalationReason", "escalationSummary", "customerIntent", "sentiment"]
+}
+```
+
+**Replace the Instructions with:**
+
+```
+Escalate to a human agent when:
+
+**Volume & Complexity Triggers:**
+1. Request involves more than 3 vehicles or license plates
+2. Request involves more than 5 violations to address
+3. Request involves multiple accounts (personal + business, duplicate accounts needing merger)
+4. Fleet or commercial account management is needed
+
+**Specialized Expertise Required:**
+5. Estate settlement or deceased account holder situations
+6. Commercial account setup with custom requirements (emergency exemptions, multi-user access, custom invoicing)
+7. Rental car billing disputes involving multiple rental companies
+8. Vehicle ownership transfers for multiple vehicles
+9. Account migration or system transition issues
+10. Requests requiring legal documentation (court cases, probate, tax audits)
+
+**Multi-Domain Coordination:**
+11. Combined parking and toll issues in one request
+12. Disputes requiring evidence review (dashcam footage, photos, documents)
+13. Payment investigations requiring bank coordination
+14. Requests needing coordination across multiple departments
+
+**System & Satisfaction Issues:**
+15. Multiple tools fail or return errors repeatedly
+16. Knowledge base lacks required policy information
+17. Customer expresses frustration, dissatisfaction, or explicitly requests a human
+18. You cannot provide adequate assistance with available tools
+
+When escalating, acknowledge the complexity or importance of their request, briefly summarize what you understood (to show you listened), and reassure them that the specialist will have all the context to help efficiently.
+```
+
+**Add Examples:**
+
+Good example — Complex coordination request:
+```
+<message>
+I understand you had a difficult day - a parking ticket from an app issue and a toll violation from police-directed traffic, and you have dashcam footage of both. Since this involves both our parking and toll systems with video evidence to review, plus the documentation you need for work reimbursement, let me connect you with a specialist who can coordinate everything and get you the proper receipts.
+</message>
+```
+
+Good example — Technical difficulties:
+```
+<message>
+I apologize, but I'm experiencing technical difficulties right now. To make sure you get accurate information, let me connect you with a representative who can help you directly right away.
+</message>
+```
+
+Good example — Frustrated customer:
+```
+<message>
+I'm really sorry for all the trouble you've been through. That's not the experience you should have. Let me get you to someone who can resolve this and make sure this gets handled properly.
+</message>
+```
+
+Good example — Complex fleet coordination:
+```
+<message>
+Setting up a fleet account with multiple ownership types, separate billing categories, and custom access levels is exactly what our commercial accounts team handles. They can coordinate the transponder shipments to your three locations and configure everything to meet your two-week deadline. Let me connect you with a business account specialist right away.
+</message>
+```
+
+Bad example (avoid — too abrupt, no empathy):
+```
+<message>
+I can't help with that. Let me transfer you to someone else.
+</message>
+```
+
+Click **Save** after updating the schema, instructions, and examples.
 
 ---
 
 ### Step 21: Add Retrieve Tool to AI Agent
 
-See [MANUAL_POST_DEPLOYMENT_STEPS.md — Step 4](MANUAL_POST_DEPLOYMENT_STEPS.md#step-4-add-retrieve-tool-to-ai-agent) for the full walkthrough to add the Knowledge Base Retrieve tool manually in the console.
+The RETRIEVE tool is NOT deployed via CloudFormation. It must be added manually.
+
+1. In the Connect Admin console, go to **AI agent designer** → **AI agents**
+2. Click on `anycompany-ivr-agent` → **Edit in Agent Builder**
+3. In the **Tools** section, click **Add tool**
+4. For **Namespace**, select **Amazon Connect**
+5. For **Tool**, select **Retrieve**
+6. For **Assistant Association**, select your assistant association from the dropdown
+
+**Tool name:** `Retrieve`
+
+**Instructions:**
+
+```
+Search the knowledge base using semantic search to find client-specific information about parking violations, tolling, payments, disputes, policies, and procedures.
+
+Rules:
+1. ALWAYS filter by clientId - never return information from other clients
+2. Use multiple searches if the first query doesn't fully answer the question
+3. Only provide information that is explicitly found in the knowledge base
+4. If information is not found, say "I don't have that specific information" and offer agent transfer
+5. Never make assumptions about client policies or procedures
+
+Use this tool to answer questions about: payment methods, fees, dispute eligibility, business hours, late penalties, payment plans, and account policies.
+```
+
+**Add Examples:**
+
+Good example — Detailed policy response:
+```
+<message>
+Metro Parking Authority accepts several payment methods. You can pay with credit cards including Visa, MasterCard, American Express, and Discover. We also accept debit cards and electronic checks. Please note there is a small convenience fee - 2.5% for card payments with a minimum of $1.50, or a flat $1.00 fee for electronic checks. Would you like to make a payment now?.
+</message>
+```
+
+Good example query: `"What happens if I don't pay my ticket on time?"`
+
+Bad example query: `"don't pay ticket"`
+
+Click **Add** to add the tool, then **Publish** to update your agent.
 
 ---
 
@@ -346,15 +540,6 @@ Call the claimed phone number and verify:
 ## Troubleshooting
 
 If you encounter issues during these steps, refer to:
-- [Known Issues](KNOWN_ISSUES.md) — documented deployment issues and fixes
 - [Troubleshooting Guide](troubleshooting.md) — general troubleshooting steps
 
-### Common Issues at This Stage
 
-| Symptom | Likely Cause | Fix |
-|---|---|---|
-| AI says nothing / immediate disconnect | AgentCore Gateway permissions | Run `fix-agentcore-gateway-policies-complete.sh` |
-| Tool calls return 403 | API Key required on API Gateway | Redeploy `03-api-gateway.yaml` with `ApiKeyRequired: false` |
-| Lambda KMS AccessDeniedException | Missing KMS policy on Lambda role | Run `scripts/fix-lambda-kms-permissions.sh` |
-| Payment flow doesn't trigger | `successNextStep` set to `EndConversation` | Recreate ParkAndTollBot with fixed script |
-| SeedPaymentSession fails with lex:PutSession | Bot IDs still `PENDING` | Redeploy `02e` stack with real bot IDs (Step 13) |
