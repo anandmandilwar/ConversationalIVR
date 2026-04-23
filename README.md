@@ -66,6 +66,7 @@ ConversationalIVR/
 - AWS CLI v2 with configured credentials
 - AWS Account with Amazon Connect, Lex V2, Q in Connect, Bedrock (Nova Sonic), AgentCore
 - Python 3.12+
+  > **Note:** Use `python3` or `python` depending on your environment. Run `python3 --version` or `python --version` to confirm. Scripts auto-detect the correct interpreter.
 - Node.js 20.x+ (for one Lambda)
 - **API Gateway CloudWatch Logs role** (one-time per account/region) — required before deploying the API Gateway stack:
   ```bash

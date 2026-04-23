@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-REGION="us-east-1"
-CONNECT_INSTANCE_ID="CONNECT_INSTANCE_ID_PLACEHOLDER"
+REGION="${REGION:?ERROR: export REGION before running (e.g., source env.sh)}"
+CONNECT_INSTANCE_ID="${CONNECT_INSTANCE_ID:?ERROR: export CONNECT_INSTANCE_ID before running (e.g., source env.sh)}"
 
 echo "============================================"
 echo "Associating Lambdas with Connect Instance"

@@ -1,6 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
+# ─── Cross-platform file:// URI helper (Git Bash on Windows fix) ──
+file_uri() {
+  local path="$1"
+  if command -v cygpath &>/dev/null; then
+    echo "file://$(cygpath -w "$path")"
+  else
+    echo "file://$path"
+  fi
+}
+
 # ============================================================
 # Configuration - Source from env.sh or set defaults
 # ============================================================
@@ -10,7 +20,35 @@ if [ -f "${SCRIPT_DIR}/env.sh" ]; then
 fi
 
 REGION="${REGION:-us-east-1}"
-ACCOUNT_ID="${ACCOUNT_ID:-123456789012}"
+
+# ─── Detect Python with boto3 ────────────────────────────────────
+PY=""
+for candidate in python3 python; do
+  if command -v "$candidate" &>/dev/null; then
+    PYPATH=$(command -v "$candidate")
+    if "$PYPATH" -c 'import boto3' 2>/dev/null; then
+      PY="$PYPATH"
+      break
+    fi
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "ERROR: No Python with boto3 found. Run: pip install boto3"
+  exit 1
+fi
+echo "  Using Python: $PY ($($PY --version 2>&1))"
+
+# Helper: write stdin to temp file and run with resolved $PY
+run_py() {
+  local _f
+  _f=$(mktemp "${TMPDIR:-/tmp}/bot_XXXXXX.py")
+  cat > "$_f"
+  "$PY" "$_f"
+  local rc=$?
+  rm -f "$_f"
+  return $rc
+}
+ACCOUNT_ID="${ACCOUNT_ID:?ERROR: ACCOUNT_ID not set. Set it in env.sh}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 STACK_NAME="${STACK_NAME:-anycompany-ivr}"
 
@@ -108,11 +146,10 @@ else
     --role-arn "${BOT_ROLE_ARN}" \
     --data-privacy '{"childDirected": false}' \
     --idle-session-ttl-in-seconds 120 \
-    --bot-type "Bot" \
     --region "${REGION}" \
     --output json)
 
-  BOT_ID=$(echo "${BOT_RESPONSE}" | python3 -c "import sys,json; print(json.load(sys.stdin)['botId'])")
+  BOT_ID=$(echo "${BOT_RESPONSE}" | "$PY" -c "import sys,json; print(json.load(sys.stdin)['botId'])")
   echo "    Bot created with ID: ${BOT_ID}"
 
   # Poll until bot is available
@@ -224,7 +261,7 @@ else
     --region "${REGION}" \
     --output json)
 
-  EXP_DATE_SLOT_TYPE_ID=$(echo "${EXP_DATE_SLOT_RESPONSE}" | python3 -c \
+  EXP_DATE_SLOT_TYPE_ID=$(echo "${EXP_DATE_SLOT_RESPONSE}" | "$PY" -c \
     "import sys,json; print(json.load(sys.stdin)['slotTypeId'])")
   echo "    Created: ${EXP_DATE_SLOT_TYPE_ID}"
 fi
@@ -334,7 +371,7 @@ else
     --region "${REGION}" \
     --output json)
 
-  COLLECT_INTENT_ID=$(echo "${COLLECT_PAYMENT_RESPONSE}" | python3 -c \
+  COLLECT_INTENT_ID=$(echo "${COLLECT_PAYMENT_RESPONSE}" | "$PY" -c \
     "import sys,json; print(json.load(sys.stdin)['intentId'])")
   echo "    Created: ${COLLECT_INTENT_ID}"
 fi
@@ -354,23 +391,44 @@ create_slot_if_not_exists() {
   local PROMPT_TEXT="$4"
   local OBFUSCATE="$5"
 
+  local FILTER_FILE
+  FILTER_FILE=$(mktemp)
+  cat > "${FILTER_FILE}" << FILTEREOF
+[{"name":"SlotName","values":["${SLOT_NAME}"],"operator":"EQ"}]
+FILTEREOF
+
   EXISTING_SLOT=$(aws lexv2-models list-slots \
     --bot-id "${BOT_ID}" --bot-version "DRAFT" --locale-id "en_US" \
     --intent-id "${COLLECT_INTENT_ID}" \
     --region "${REGION}" \
-    --filters "[{"name":"SlotName","values":["${SLOT_NAME}"],"operator":"EQ"}]" \
+    --filters "$(file_uri "${FILTER_FILE}")" \
     --query "slotSummaries[0].slotId" --output text 2>/dev/null || echo "None")
+  rm -f "${FILTER_FILE}"
 
   if [ "${EXISTING_SLOT}" != "None" ] && [ -n "${EXISTING_SLOT}" ]; then
-    echo "    ${SLOT_NAME} already exists: ${EXISTING_SLOT}"
+    echo "    ${SLOT_NAME} already exists: ${EXISTING_SLOT}" >&2
     echo "${EXISTING_SLOT}"
     return
   fi
 
-  local OBFUSCATION_ARG=""
-  if [ "${OBFUSCATE}" = "true" ]; then
-    OBFUSCATION_ARG='--obfuscation-setting {"obfuscationSettingType": "DefaultObfuscation"}'
-  fi
+  local VES_FILE
+  VES_FILE=$(mktemp)
+  cat > "${VES_FILE}" << VESEOF
+{
+  "slotConstraint": "Required",
+  "promptSpecification": {
+    "messageGroups": [{
+      "message": {
+        "plainTextMessage": {
+          "value": "${PROMPT_TEXT}"
+        }
+      }
+    }],
+    "maxRetries": 3,
+    "allowInterrupt": true
+  }
+}
+VESEOF
 
   local SLOT_RESPONSE
   if [ "${OBFUSCATE}" = "true" ]; then
@@ -382,20 +440,7 @@ create_slot_if_not_exists() {
       --slot-name "${SLOT_NAME}" \
       --description "${SLOT_DESC}" \
       --slot-type-id "${SLOT_TYPE_ID}" \
-      --value-elicitation-setting "{
-        "slotConstraint": "Required",
-        "promptSpecification": {
-          "messageGroups": [{
-            "message": {
-              "plainTextMessage": {
-                "value": "${PROMPT_TEXT}"
-              }
-            }
-          }],
-          "maxRetries": 3,
-          "allowInterrupt": true
-        }
-      }" \
+      --value-elicitation-setting "$(file_uri "${VES_FILE}")" \
       --obfuscation-setting '{"obfuscationSettingType": "DefaultObfuscation"}' \
       --region "${REGION}" \
       --output json)
@@ -408,27 +453,15 @@ create_slot_if_not_exists() {
       --slot-name "${SLOT_NAME}" \
       --description "${SLOT_DESC}" \
       --slot-type-id "${SLOT_TYPE_ID}" \
-      --value-elicitation-setting "{
-        "slotConstraint": "Required",
-        "promptSpecification": {
-          "messageGroups": [{
-            "message": {
-              "plainTextMessage": {
-                "value": "${PROMPT_TEXT}"
-              }
-            }
-          }],
-          "maxRetries": 3,
-          "allowInterrupt": true
-        }
-      }" \
+      --value-elicitation-setting "$(file_uri "${VES_FILE}")" \
       --region "${REGION}" \
       --output json)
   fi
+  rm -f "${VES_FILE}"
 
   local SLOT_ID
-  SLOT_ID=$(echo "${SLOT_RESPONSE}" | python3 -c "import sys,json; print(json.load(sys.stdin)['slotId'])")
-  echo "    ✅ ${SLOT_NAME} created: ${SLOT_ID}"
+  SLOT_ID=$(echo "${SLOT_RESPONSE}" | "$PY" -c "import sys,json; print(json.load(sys.stdin)['slotId'])")
+  echo "    ✅ ${SLOT_NAME} created: ${SLOT_ID}" >&2
   echo "${SLOT_ID}"
 }
 
@@ -620,7 +653,7 @@ else
     --region "${REGION}" \
     --output json)
 
-  CANCEL_INTENT_ID=$(echo "${CANCEL_RESPONSE}" | python3 -c \
+  CANCEL_INTENT_ID=$(echo "${CANCEL_RESPONSE}" | "$PY" -c \
     "import sys,json; print(json.load(sys.stdin)['intentId'])")
   echo "    Created: ${CANCEL_INTENT_ID}"
 fi
@@ -709,13 +742,13 @@ EOF
 
 VERSION_RESPONSE=$(aws lexv2-models create-bot-version \
   --bot-id "${BOT_ID}" \
-  --bot-version-locale-specification "file://${VERSION_SPEC_FILE}" \
+  --bot-version-locale-specification "$(file_uri "${VERSION_SPEC_FILE}")" \
   --region "${REGION}" \
   --output json)
 
 rm -f "${VERSION_SPEC_FILE}"
 
-BOT_VERSION=$(echo "${VERSION_RESPONSE}" | python3 -c \
+BOT_VERSION=$(echo "${VERSION_RESPONSE}" | "$PY" -c \
   "import sys,json; print(json.load(sys.stdin)['botVersion'])")
 echo "    Bot version created: ${BOT_VERSION}"
 
@@ -771,7 +804,7 @@ if [ "${EXISTING_ALIAS_ID}" != "None" ] && [ -n "${EXISTING_ALIAS_ID}" ]; then
     --bot-alias-id "${BOT_ALIAS_ID}" \
     --bot-alias-name "${ALIAS_NAME}" \
     --bot-version "${BOT_VERSION}" \
-    --bot-alias-locale-settings "file://${ALIAS_SETTINGS_FILE}" \
+    --bot-alias-locale-settings "$(file_uri "${ALIAS_SETTINGS_FILE}")" \
     --region "${REGION}" > /dev/null
   echo "    Updated existing alias: ${BOT_ALIAS_ID} -> v${BOT_VERSION}"
 else
@@ -779,12 +812,12 @@ else
     --bot-id "${BOT_ID}" \
     --bot-alias-name "${ALIAS_NAME}" \
     --bot-version "${BOT_VERSION}" \
-    --bot-alias-locale-settings "file://${ALIAS_SETTINGS_FILE}" \
+    --bot-alias-locale-settings "$(file_uri "${ALIAS_SETTINGS_FILE}")" \
     --description "Production alias for PCI payment collection - logs disabled" \
     --region "${REGION}" \
     --output json)
 
-  BOT_ALIAS_ID=$(echo "${ALIAS_RESPONSE}" | python3 -c \
+  BOT_ALIAS_ID=$(echo "${ALIAS_RESPONSE}" | "$PY" -c \
     "import sys,json; print(json.load(sys.stdin)['botAliasId'])")
   echo "    Created alias: ${BOT_ALIAS_ID}"
 fi
@@ -818,22 +851,16 @@ fi
 echo ""
 echo ">>> Step 12b: Verifying conversation logs are disabled..."
 
-python3 << PYEOF
-import boto3, sys
-
-client = boto3.client('lexv2-models', region_name='${REGION}')
-response = client.describe_bot_alias(botId='${BOT_ID}', botAliasId='${BOT_ALIAS_ID}')
-
+export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_ALIAS="${BOT_ALIAS_ID}"
+run_py << 'PYEOF'
+import boto3, sys, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
+response = client.describe_bot_alias(botId=os.environ['_PY_BOT'], botAliasId=os.environ['_PY_ALIAS'])
 log_settings = response.get('conversationLogSettings', {})
-text_logs = log_settings.get('textLogSettings', [])
-audio_logs = log_settings.get('audioLogSettings', [])
-
-text_on = any(s.get('enabled', False) for s in text_logs)
-audio_on = any(s.get('enabled', False) for s in audio_logs)
-
+text_on = any(s.get('enabled', False) for s in log_settings.get('textLogSettings', []))
+audio_on = any(s.get('enabled', False) for s in log_settings.get('audioLogSettings', []))
 print(f"    Text logging enabled:  {text_on}")
 print(f"    Audio logging enabled: {audio_on}")
-
 if not text_on and not audio_on:
     print("    ✅ PCI COMPLIANT: All conversation logging is DISABLED")
 else:
@@ -884,7 +911,7 @@ EOF
 
 aws connect associate-bot \
   --instance-id "${CONNECT_INSTANCE_ID}" \
-  --lex-v2-bot "file://${ASSOCIATE_FILE}" \
+  --lex-v2-bot "$(file_uri "${ASSOCIATE_FILE}")" \
   --region "${REGION}" 2>/dev/null \
   && echo "    Associated!" \
   || echo "    Already associated (OK)"
@@ -906,43 +933,32 @@ aws connect list-bots \
 echo ""
 echo ">>> Step 15: Final verification..."
 
-python3 << PYEOF
-import boto3
-
-client = boto3.client('lexv2-models', region_name='${REGION}')
-
-# Verify intent fulfillment on published version
+export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_VER="${BOT_VERSION}" \
+       _PY_INTENT="${COLLECT_INTENT_ID}" _PY_ALIAS="${BOT_ALIAS_ID}"
+run_py << 'PYEOF'
+import boto3, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
 intent = client.describe_intent(
-    botId='${BOT_ID}', botVersion='${BOT_VERSION}',
-    localeId='en_US', intentId='${COLLECT_INTENT_ID}'
+    botId=os.environ['_PY_BOT'], botVersion=os.environ['_PY_VER'],
+    localeId='en_US', intentId=os.environ['_PY_INTENT']
 )
 fch = intent.get('fulfillmentCodeHook', {})
-print(f"  CollectPayment (v${BOT_VERSION}): fulfillment enabled={fch.get('enabled', False)}")
-
-# Verify alias
-alias_resp = client.describe_bot_alias(botId='${BOT_ID}', botAliasId='${BOT_ALIAS_ID}')
-locale_settings = alias_resp.get('botAliasLocaleSettings', {})
-en_us = locale_settings.get('en_US', {})
+ver = os.environ['_PY_VER']
+print(f"  CollectPayment (v{ver}): fulfillment enabled={fch.get('enabled', False)}")
+alias_resp = client.describe_bot_alias(botId=os.environ['_PY_BOT'], botAliasId=os.environ['_PY_ALIAS'])
+en_us = alias_resp.get('botAliasLocaleSettings', {}).get('en_US', {})
 lambda_arn = en_us.get('codeHookSpecification', {}).get('lambdaCodeHook', {}).get('lambdaARN', 'NOT SET')
 print(f"  Alias '{alias_resp.get('botAliasName')}': version={alias_resp.get('botVersion')}")
 print(f"  Alias Lambda: {lambda_arn}")
-
 errors = []
-if not fch.get('enabled', False):
-    errors.append("Fulfillment NOT enabled on CollectPayment intent")
-if lambda_arn == 'NOT SET':
-    errors.append("Lambda ARN NOT set on alias locale settings")
-if alias_resp.get('botVersion') != '${BOT_VERSION}':
-    errors.append(f"Alias points to v{alias_resp.get('botVersion')}, expected v${BOT_VERSION}")
-
+if not fch.get('enabled', False): errors.append('Fulfillment NOT enabled on CollectPayment intent')
+if lambda_arn == 'NOT SET': errors.append('Lambda ARN NOT set on alias locale settings')
+if alias_resp.get('botVersion') != ver: errors.append(f'Alias points to v{alias_resp.get("botVersion")}, expected v{ver}')
 if errors:
-    print("")
-    print("  ❌ VALIDATION ERRORS:")
-    for e in errors:
-        print(f"     - {e}")
+    print('\n  \u274c VALIDATION ERRORS:')
+    [print(f'     - {e}') for e in errors]
 else:
-    print("")
-    print("  ✅ All checks passed!")
+    print('\n  \u2705 All checks passed!')
 PYEOF
 
 # ============================================================

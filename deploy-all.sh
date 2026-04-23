@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+export PYTHONLEGACYWINDOWSSTDIO=0
+
 # ==========================================================
 # deploy-all.sh — AnyCompany IVR Complete Deployment
 #
@@ -41,6 +45,8 @@ STACK_NAME="${STACK_NAME:?ERROR: export STACK_NAME before running (e.g., anycomp
 INSTANCE_ALIAS="${INSTANCE_ALIAS:?ERROR: export INSTANCE_ALIAS before running (e.g., anycompany-demo)}"
 BUCKET="${BUCKET:?ERROR: export BUCKET before running (S3 bucket for templates, must exist)}"
 PREFIX="${PREFIX:?ERROR: export PREFIX before running (S3 prefix, e.g., anycompany-ivr/templates)}"
+OPENAPI_BUCKET="${OPENAPI_BUCKET:?ERROR: export OPENAPI_BUCKET before running (S3 OPENAPI_BUCKET for OpenAPI Schema file, must exist)}"
+KB_BUCKET="${KB_BUCKET:?ERROR: export KB_BUCKET before running (S3 KB_BUCKET for KnowledgeBase file, must exist)}"
 
 # ============================================================
 # Optional Variables — defaults used if not set
@@ -162,6 +168,7 @@ echo "  AgentCore GW:     $AGENTCORE_GW_NAME"
 echo "  AgentCore Target: $AGENTCORE_TARGET_NAME"
 echo "  KB Bucket:        $KB_BUCKET"
 echo "  KB Prefix:        $KB_PREFIX"
+echo "  OpenAPI Schema Bucket:        $OPENAPI_BUCKET"
 echo "  Phase 2 Stack:    $PHASE2_STACK_NAME"
 echo ""
 
@@ -173,25 +180,19 @@ echo ""
 echo "  Checking for orphaned resources from previous deployments..."
 
 ORPHAN_LAMBDA=$(aws lambda list-functions --region "$REGION" \
-  --query "Functions[?contains(FunctionName,'bootstrap')].FunctionName" --output text 2>/dev/null)
+  --query "Functions[?contains(FunctionName,'bootstrap')].FunctionName" --output text 2>/dev/null || true)
 if [ -n "$ORPHAN_LAMBDA" ] && [ "$ORPHAN_LAMBDA" != "None" ]; then
   echo "  ⚠️  Orphaned Lambda found: $ORPHAN_LAMBDA"
   echo "  Delete it: aws lambda delete-function --function-name $ORPHAN_LAMBDA --region $REGION"
 fi
 
-ORPHAN_APP=$(aws appintegrations list-applications --region "$REGION" \
-  --query "Applications[?Name=='mcp_tools'].Arn" --output text 2>/dev/null)
-if [ -n "$ORPHAN_APP" ] && [ "$ORPHAN_APP" != "None" ]; then
-  echo "  ⚠️  Orphaned MCP App found: $ORPHAN_APP"
-  echo "  Delete it: aws appintegrations delete-application --arn $ORPHAN_APP --region $REGION"
-fi
 
-if [ -n "$ORPHAN_LAMBDA" ] || [ -n "$ORPHAN_APP" ]; then
+
+if [ -n "$ORPHAN_LAMBDA" ] && [ "$ORPHAN_LAMBDA" != "None" ]; then
   echo ""
-  read -r -p "  Clean up orphans before continuing? (y/N): " CLEANUP
+  read -r -p "  Delete orphaned Lambda before continuing? (y/N): " CLEANUP
   if [[ "$CLEANUP" =~ ^[Yy]$ ]]; then
-    [ -n "$ORPHAN_LAMBDA" ] && aws lambda delete-function --function-name "$ORPHAN_LAMBDA" --region "$REGION" && echo "  ✅ Deleted $ORPHAN_LAMBDA"
-    [ -n "$ORPHAN_APP" ] && aws appintegrations delete-application --arn "$ORPHAN_APP" --region "$REGION" && echo "  ✅ Deleted $ORPHAN_APP"
+    aws lambda delete-function --function-name "$ORPHAN_LAMBDA" --region "$REGION" && echo "  ✅ Deleted $ORPHAN_LAMBDA"
   fi
 fi
 
@@ -371,8 +372,8 @@ done
 
 # Upload the UPDATED openapi.yaml (with real API Gateway URL)
 aws s3 cp "/tmp/openapi-updated.yaml" \
-    "s3://$BUCKET/$PREFIX/openapi.yaml" --region "$REGION" --quiet
-echo "    ✅ openapi.yaml (updated URL) → s3://$BUCKET/$PREFIX/openapi.yaml"
+    "s3://$OPENAPI_BUCKET/openapi.yaml" --region "$REGION" --quiet
+echo "    ✅ openapi.yaml (updated URL) → s3://$OPENAPI_BUCKET/openapi.yaml"
 
 # Upload bootstrap Lambda code if it exists
 if [ -f "$CFN_DIR/bootstrap-lambda.zip" ]; then
@@ -404,8 +405,8 @@ deploy_stack "$STACK_NAME" \
     InstanceAlias="$INSTANCE_ALIAS" \
     AgentCoreGatewayName="$AGENTCORE_GW_NAME" \
     AgentCoreTargetName="$AGENTCORE_TARGET_NAME" \
-    OpenApiSchemaBucket="$BUCKET" \
-    OpenApiSchemaKey="$PREFIX/openapi.yaml" \
+    OpenApiSchemaBucket="$OPENAPI_BUCKET" \
+    OpenApiSchemaKey="openapi.yaml" \
     ApiGatewayRestApiId="$REST_API_ID" \
     ApiGatewayStageName="$API_STAGE" \
     ApiGatewayApiKeyId="$API_KEY_ID" \
@@ -515,44 +516,10 @@ echo "║   ⏸️  MANUAL STEPS REQUIRED BEFORE PHASE 2              ║"
 echo "║                                                          ║"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo "║                                                          ║"
-echo "║  1. Associate Q in Connect domain with Connect instance  ║"
-echo "║     Console: Amazon Connect → Instance → Amazon Q        ║"
+echo "║  1. Follow                                               ║"
+echo "║ docs/docs/Manual-post-phase1-and-2-deployment-steps.md   ║"
+echo "║     for all the manual steps post Phase-1                ║"
 echo "║                                                          ║"
-echo "║  2. Verify MCP Server is associated                      ║"
-echo "║     Console: Amazon Q → Application → Tools              ║"
-echo "║     Verify all 9 tools are visible                       ║"
-echo "║                                                          ║"
-echo "║  3. Create ParkAndTollBot (Amazon Lex V2):               ║"
-echo "║     - Language: en_US                                    ║"
-echo "║     - Add AmazonQinConnect built-in intent               ║"
-echo "║     - Fulfillment Code Hook:                             ║"
-echo "║       ivr-${ENVIRONMENT}-QinConnectDialogHook                     ║"
-echo "║     - Build and publish                                  ║"
-echo "║     - Associate with Connect instance                    ║"
-echo "║                                                          ║"
-echo "║  4. Create PaymentCollectionBot (Amazon Lex V2):         ║"
-echo "║     - CollectPayment intent (card slots)                 ║"
-echo "║     - CancelPayment intent                               ║"
-echo "║     - Code Hook:                                         ║"
-echo "║       ivr-${ENVIRONMENT}-PaymentProcessing                        ║"
-echo "║     - Build and publish                                  ║"
-echo "║     - Associate with Connect instance                    ║"
-echo "║                                                          ║"
-echo "║  5. Import Connect contact flows                         ║"
-echo "║     (inbound, payment, agent transfer)                   ║"
-echo "║                                                          ║"
-echo "║  6. Deploy actual Lambda code (replace stubs)            ║"
-echo "║     All 16 Lambda functions need real code               ║"
-echo "║                                                          ║"
-echo "║  7. Seed DynamoDB test data                              ║"
-echo "║     client-config, customers, violations, disputes       ║"
-echo "║                                                          ║"
-echo "║  8. Upload Knowledge Base docs to S3 and sync            ║"
-echo "║     Bucket: $KB_BUCKET"
-echo "║     Prefix: $KB_PREFIX"
-echo "║                                                          ║"
-echo "║  9. Claim phone number in Connect                        ║"
-echo "║     Assign to inbound contact flow                       ║"
 echo "║                                                          ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""

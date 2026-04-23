@@ -17,16 +17,19 @@ Execute these steps after `deploy-all.sh` completes Phase 1 and Phase 1b, **befo
 
 1. Navigate to the **Amazon Connect console**
 2. Select your Connect instance (`anycompany-ivr-demo-2`)
-3. In the left navigation, choose **Connect Assistant** or **Amazon Q** → **Add domain**
+3. In the left navigation, choose **Applicaton Agents → AI Agents → **Add domain**
 4. Select **Use an existing domain**
-5. Choose the domain from the dropdown and click **Add domain**
+5. Choose the domain (<instance_alias>-assistant) from the dropdown and click **Add domain**
 
 **Add Knowledge Base Integration:**
 
-1. On the **Add integration** page, choose **Create a new integration** → select **S3** as the source
-2. Integration name: `anycompanyIVRDemo`
-3. Under **Connection with S3**, browse and select your KB bucket: `anycompany-kb-bucket-3966`
-4. Once created, upload the following files to the S3 bucket:
+1. Select the existing integration and **Delete** it. 
+2. On the **Add integration** page, choose **Create a new integration** → select **S3** as the source
+3. Integration name: `anycompanyIVRDemo`
+4. Under **Connection with S3**, browse and select your KB bucket: `anycompany-kb-bucket-xxx`
+5. Under Encryption, select "AWS KMS key" - **ivr-dev-payment-key**
+6. Click "Next" and **Add Integration**
+5. Once created, upload the following files to the S3 bucket:
    - `knowledge-base/faq.txt`
    - `knowledge-base/policies.txt`
    - `knowledge-base/services.txt`
@@ -78,7 +81,9 @@ The MCP application deployed by automation may not work correctly. Replace it ma
 Run the admin user creation script:
 
 ```bash
-python3 create_connect_admin.py \
+# NOTE: Replace 'python3' with 'python' if that is the command in your environment.
+# Run 'python3 --version' or 'python --version' to confirm which is available.
+python3 scripts/utilities/create_connect_admin.py \
   --region us-east-1 \
   --instance-id "${CONNECT_INSTANCE_ID}" \
   --username "admin" \
@@ -160,6 +165,15 @@ Execute these steps after Phase 2 (`anycompany-ivr-phase2-qagents`) completes.
 2. Edit the AI Prompt and replace it with the content from `ai-agent/Final-System-Prompt-03242026_1230.txt`
 3. Click **Save** then **Publish**
 4. Go back to the Agent → **Add Prompt** → **Add existing AI Prompt** → select the v2 prompt you just saved and published
+5. Create AI Prompt → Name - **IVRDemo-AI-Agent-System-Prompt**
+6. Description - **System Prompt for AI Agent** 
+7. Click **Create**
+8. Once created, Edit the AI Prompt and replace it with the content from `ai-agent/Final-System-Prompt-03242026_1230.txt`
+9. Click **Save** and then **Publish**
+10. Go back to **AI agent designer**, select the agent created earlier and click **Edit in Agent Builder**
+11. Navigate to **Promppt** section and click **Add Prompt**
+12. Select **Add existing AI Prompt** and select the one create earlier
+13. Click **Add** and then **Save**
 
 **Add MCP Tools:**
 
@@ -212,6 +226,7 @@ Execute these steps after Phase 2 (`anycompany-ivr-phase2-qagents`) completes.
 Ensure `CONNECT_INSTANCE_ID` is set in `env.sh`, then run:
 
 ```bash
+source env.sh
 ./scripts/associate_lamnbda_to_connect.sh
 ```
 
@@ -256,6 +271,7 @@ Note the Bot ID and Alias ID from the output (also saved to `payment-bot-config.
 The `02e` stack was deployed with `PENDING` bot IDs. Redeploy with real values:
 
 ```bash
+# NOTE: Replace 'python3' with 'python' if that is the command in your environment.
 BOT_ID=$(python3 -c "import json; print(json.load(open('payment-bot-config.json'))['botId'])")
 ALIAS_ID=$(python3 -c "import json; print(json.load(open('payment-bot-config.json'))['botAliasId'])")
 
@@ -282,9 +298,10 @@ aws cloudformation deploy --region us-east-1 \
 ./fix-connect-flow.sh connect-flows/main-ivr-flow.json
 ```
 
-**B) Manually update the `WisdomAssistantArn`** in the updated JSON with the actual ARN from Phase 1 outputs.
+**B) Manually update the `WisdomAssistantArn`** in the (Basic-setting-configurations.json) with the actual ARN from Phase 1 outputs.
 
-**C) Also update the PaymentCollectionBot ARN** in the flow JSON with the bot ID and alias ID from Step 12.
+**C) Also update the PaymentCollectionBot ARN** in the updated flow JSON with the bot ID and alias ID from Step 12. Search for every occurence of **123456789012** and replace it with actual value
+
 
 **D) Import flows in order:**
 
@@ -477,7 +494,7 @@ The script is safe to run multiple times:
 ### Step 15: Deploy Lambda Code from Local
 
 ```bash
-./scripts/update-lambda-code.sh
+./update-lambda-code.sh
 ```
 
 Verify all 16 functions show ✅ in the final verification table.
@@ -504,6 +521,7 @@ aws lambda update-function-configuration \
     --function-name anycompany-ivr-initiate-payment-dev \
     --region us-east-1 --query "Environment.Variables" --output json \
     | python3 -c "import sys,json; d=json.load(sys.stdin); d['CONNECT_INSTANCE_ID']='${CONNECT_INSTANCE_ID}'; print(json.dumps(d))")}"
+# NOTE: Replace 'python3' above with 'python' if that is the command in your environment.
 ```
 
 ---
@@ -511,6 +529,7 @@ aws lambda update-function-configuration \
 ### Step 17: Seed DynamoDB Test Data
 
 ```bash
+# NOTE: Replace 'python3' with 'python' if that is the command in your environment.
 python3 scripts/utilities/seed_client_config.py
 python3 scripts/utilities/seed_test_data.py
 ```

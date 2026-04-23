@@ -37,8 +37,9 @@ source "${ENV_FILE}"
 
 # ─── Validate Required Variables ────────────────────────────────────────────
 MISSING_VARS=()
-[[ -z "${REGION:-}" ]]     && MISSING_VARS+=("REGION")
-[[ -z "${ACCOUNT_ID:-}" ]] && MISSING_VARS+=("ACCOUNT_ID")
+[[ -z "${REGION:-}" ]]              && MISSING_VARS+=("REGION")
+[[ -z "${ACCOUNT_ID:-}" ]]          && MISSING_VARS+=("ACCOUNT_ID")
+[[ -z "${CONNECT_INSTANCE_ID:-}" ]] && MISSING_VARS+=("CONNECT_INSTANCE_ID")
 
 if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
   echo "  ❌ Missing required variables in env.sh:"
@@ -57,7 +58,33 @@ WORK_DIR="${SCRIPT_DIR}/flow-updates"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p "${WORK_DIR}"
 
-# ─── Colors ─────────────────────────────────────────────────────────────────
+# ─── jq helper: use jq if available, else fall back to Python ──────────────
+if command -v jq &>/dev/null; then
+  jq_cmd() { jq "$@"; }
+else
+  jq_cmd() {
+    local filter="$1"; shift
+    "$PY" -c "
+import sys, json
+data = json.load(open('$1') if len(sys.argv) > 1 and '$1' != '-' else sys.stdin)
+if '$filter' == '.':
+    print(json.dumps(data, indent=2))
+elif '$filter' == 'length':
+    print(len(data))
+else:
+    print(data)
+" 2>/dev/null || cat "$1"
+  }
+fi
+
+# ─── Detect Python (needed for jq fallback) ──────────────────────────────────
+PY=""
+for candidate in python3 python; do
+  if command -v "$candidate" &>/dev/null; then
+    PY=$(command -v "$candidate")
+    break
+  fi
+done
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -134,12 +161,20 @@ aws lambda list-functions \
   --query "Functions[].{Name:FunctionName, Arn:FunctionArn}" \
   --output json > "${LAMBDA_CACHE}"
 
-LAMBDA_COUNT=$(jq length "${LAMBDA_CACHE}")
+LAMBDA_COUNT=$(jq_cmd length "${LAMBDA_CACHE}")
 log "Found ${LAMBDA_COUNT} Lambda functions in account"
 
 get_lambda_arn() {
   local func_name="$1"
-  jq -r --arg name "${func_name}" '.[] | select(.Name == $name) | .Arn' "${LAMBDA_CACHE}"
+  if command -v jq &>/dev/null; then
+    jq -r --arg name "${func_name}" '.[] | select(.Name == $name) | .Arn' "${LAMBDA_CACHE}"
+  else
+    "$PY" -c "
+import json, sys
+data = json.load(open('${LAMBDA_CACHE}'))
+print(next((x['Arn'] for x in data if x['Name'] == sys.argv[1]), ''))
+" "${func_name}"
+  fi
 }
 
 ###############################################################################
@@ -196,7 +231,7 @@ fi
 
 # Save the original
 ORIGINAL_FILE="${WORK_DIR}/flow-original-${TIMESTAMP}.json"
-echo "${FLOW_CONTENT}" | jq '.' > "${ORIGINAL_FILE}" 2>/dev/null || echo "${FLOW_CONTENT}" > "${ORIGINAL_FILE}"
+echo "${FLOW_CONTENT}" | jq_cmd '.' > "${ORIGINAL_FILE}" 2>/dev/null || echo "${FLOW_CONTENT}" > "${ORIGINAL_FILE}"
 log "Original flow saved: ${ORIGINAL_FILE}"
 
 # Count placeholders
@@ -261,7 +296,7 @@ fi
 
 # ─── 3c: Save the updated flow ─────────────────────────────────────────────
 UPDATED_FILE="${WORK_DIR}/flow-updated-${TIMESTAMP}.json"
-jq '.' "${TEMP_FILE}" > "${UPDATED_FILE}" 2>/dev/null || cp "${TEMP_FILE}" "${UPDATED_FILE}"
+jq_cmd '.' "${TEMP_FILE}" > "${UPDATED_FILE}" 2>/dev/null || cp "${TEMP_FILE}" "${UPDATED_FILE}"
 
 # Verify no placeholders remain
 REMAINING_PLACEHOLDERS=$(grep -c "${PLACEHOLDER_ACCOUNT}" "${UPDATED_FILE}" || true)

@@ -11,6 +11,18 @@
 
 set -euo pipefail
 
+# ─── Cross-platform file:// URI helper (Git Bash on Windows fix) ──
+# AWS CLI on Windows can't resolve Unix-style /tmp/ paths.
+# This converts paths to Windows format when running in Git Bash.
+file_uri() {
+  local path="$1"
+  if command -v cygpath &>/dev/null; then
+    echo "file://$(cygpath -w "$path")"
+  else
+    echo "file://$path"
+  fi
+}
+
 # ─── Source environment ──────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/env.sh" ]; then
@@ -241,6 +253,34 @@ else
   echo "    Status: ${LOCALE_STATUS}"
 fi
 
+# ─── Detect Python with boto3 ────────────────────────────────────
+PY=""
+for candidate in python3 python; do
+  if command -v "$candidate" &>/dev/null; then
+    PYPATH=$(command -v "$candidate")
+    if "$PYPATH" -c 'import boto3' 2>/dev/null; then
+      PY="$PYPATH"
+      break
+    fi
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "ERROR: No Python with boto3 found. Run: pip install boto3"
+  exit 1
+fi
+echo "  Using Python: $PY ($($PY --version 2>&1))"
+
+# Helper: write to temp file and run with resolved $PY (avoids heredoc subprocess PATH issues)
+run_py() {
+  local _f
+  _f=$(mktemp "${TMPDIR:-/tmp}/bot_XXXXXX.py")
+  cat > "$_f"
+  "$PY" "$_f"
+  local rc=$?
+  rm -f "$_f"
+  return $rc
+}
+
 # ─── Step 4: Create AMAZON.QInConnectIntent (via Python/boto3) ───
 echo ""
 echo ">>> Step 4: Create AmazonQinConnect intent (${INTENT_SIGNATURE})..."
@@ -254,24 +294,17 @@ QNA_INTENT_ID=$(aws lexv2-models list-intents \
 if [ "${QNA_INTENT_ID}" != "None" ] && [ -n "${QNA_INTENT_ID}" ]; then
   echo "    Already exists: ${QNA_INTENT_ID}"
 else
-  QNA_INTENT_ID=$(python3 << PYEOF
-import boto3
-import sys
-
-client = boto3.client('lexv2-models', region_name='${REGION}')
-
+  export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_LOCALE="${LOCALE_ID}" \
+         _PY_SIG="${INTENT_SIGNATURE}" _PY_ARN="${ASSISTANT_ARN}"
+  QNA_INTENT_ID=$(run_py << 'PYEOF'
+import boto3, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
 resp = client.create_intent(
-    botId='${BOT_ID}',
-    botVersion='DRAFT',
-    localeId='${LOCALE_ID}',
+    botId=os.environ['_PY_BOT'], botVersion='DRAFT', localeId=os.environ['_PY_LOCALE'],
     intentName='AmazonQinConnect',
     description='This intent leverages Amazon Q in Connect to fulfill requests or tasks.',
-    parentIntentSignature='${INTENT_SIGNATURE}',
-    qInConnectIntentConfiguration={
-        'qInConnectAssistantConfiguration': {
-            'assistantArn': '${ASSISTANT_ARN}'
-        }
-    }
+    parentIntentSignature=os.environ['_PY_SIG'],
+    qInConnectIntentConfiguration={'qInConnectAssistantConfiguration': {'assistantArn': os.environ['_PY_ARN']}}
 )
 print(resp['intentId'])
 PYEOF
@@ -286,20 +319,17 @@ fi
 
 # Verify
 echo "    Verifying..."
-python3 << PYEOF
-import boto3, json
-client = boto3.client('lexv2-models', region_name='${REGION}')
-d = client.describe_intent(
-    botId='${BOT_ID}', botVersion='DRAFT',
-    localeId='${LOCALE_ID}', intentId='${QNA_INTENT_ID}'
-)
+export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_LOCALE="${LOCALE_ID}" _PY_INTENT="${QNA_INTENT_ID}"
+run_py << 'PYEOF'
+import boto3, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
+d = client.describe_intent(botId=os.environ['_PY_BOT'], botVersion='DRAFT',
+    localeId=os.environ['_PY_LOCALE'], intentId=os.environ['_PY_INTENT'])
 print(f"  Name:      {d['intentName']}")
 print(f"  Signature: {d.get('parentIntentSignature','N/A')}")
-qic = d.get('qInConnectIntentConfiguration', {})
-assistant_arn = qic.get('qInConnectAssistantConfiguration', {}).get('assistantArn', 'NOT SET')
+assistant_arn = d.get('qInConnectIntentConfiguration',{}).get('qInConnectAssistantConfiguration',{}).get('assistantArn','NOT SET')
 print(f"  Assistant: {assistant_arn}")
-fch = d.get('fulfillmentCodeHook', {})
-print(f"  Fulfillment enabled: {fch.get('enabled', False)}")
+print(f"  Fulfillment enabled: {d.get('fulfillmentCodeHook',{}).get('enabled', False)}")
 PYEOF
 
 # ─── CHANGED: Step 5: Enable Fulfillment on AmazonQInConnect Intent ─
@@ -313,86 +343,35 @@ echo ""
 echo ">>> Step 5: Enable fulfillment code hook on AmazonQInConnect intent..."
 
 if [ -n "${FULFILLMENT_HOOK_ARN}" ]; then
-  python3 << PYEOF
-import boto3, json, sys
-
-client = boto3.client('lexv2-models', region_name='${REGION}')
-
+  export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_LOCALE="${LOCALE_ID}" _PY_INTENT="${QNA_INTENT_ID}"
+  run_py << 'PYEOF'
+import boto3, sys, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
 try:
-    # Describe current intent to get full config
-    intent = client.describe_intent(
-        botId='${BOT_ID}',
-        botVersion='DRAFT',
-        localeId='${LOCALE_ID}',
-        intentId='${QNA_INTENT_ID}'
-    )
-
-    # Check if already enabled
-    fch = intent.get('fulfillmentCodeHook', {})
-    if fch.get('enabled', False):
-        print("    Fulfillment already enabled — updating config")
-
-    # Remove read-only fields that cannot be sent in update
-    for field in ['creationDateTime', 'lastUpdatedDateTime', 'ResponseMetadata',
-                  'botId', 'botVersion', 'localeId', 'intentId']:
+    intent = client.describe_intent(botId=os.environ['_PY_BOT'], botVersion='DRAFT',
+        localeId=os.environ['_PY_LOCALE'], intentId=os.environ['_PY_INTENT'])
+    for field in ['creationDateTime','lastUpdatedDateTime','ResponseMetadata','botId','botVersion','localeId','intentId']:
         intent.pop(field, None)
-
-    # Enable fulfillment code hook with post-fulfillment spec
-    # postFulfillmentStatusSpecification defines what happens AFTER
-    # the Lambda returns — the successResponse is spoken to the caller
     intent['fulfillmentCodeHook'] = {
-        'enabled': True,
-        'active': True,
+        'enabled': True, 'active': True,
         'postFulfillmentStatusSpecification': {
-            'successResponse': {
-                'messageGroups': [{
-                    'message': {
-                        'plainTextMessage': {
-                            'value': '((x-amz-lex:q-in-connect-response))'
-                        }
-                    }
-                }],
-                'allowInterrupt': True
-            },
-            'successNextStep': {
-                'dialogAction': {'type': 'EndConversation'}
-            },
-            'failureNextStep': {
-                'dialogAction': {'type': 'EndConversation'}
-            },
-            'timeoutNextStep': {
-                'dialogAction': {'type': 'EndConversation'}
-            }
+            'successResponse': {'messageGroups': [{'message': {'plainTextMessage': {'value': '((x-amz-lex:q-in-connect-response))'}}}], 'allowInterrupt': True},
+            'successNextStep': {'dialogAction': {'type': 'EndConversation'}},
+            'failureNextStep': {'dialogAction': {'type': 'EndConversation'}},
+            'timeoutNextStep': {'dialogAction': {'type': 'EndConversation'}}
         }
     }
-
-    # Update the intent
-    client.update_intent(
-        botId='${BOT_ID}',
-        botVersion='DRAFT',
-        localeId='${LOCALE_ID}',
-        intentId='${QNA_INTENT_ID}',
-        **intent
-    )
-
-    # Verify
-    verify = client.describe_intent(
-        botId='${BOT_ID}',
-        botVersion='DRAFT',
-        localeId='${LOCALE_ID}',
-        intentId='${QNA_INTENT_ID}'
-    )
+    client.update_intent(botId=os.environ['_PY_BOT'], botVersion='DRAFT',
+        localeId=os.environ['_PY_LOCALE'], intentId=os.environ['_PY_INTENT'], **intent)
+    verify = client.describe_intent(botId=os.environ['_PY_BOT'], botVersion='DRAFT',
+        localeId=os.environ['_PY_LOCALE'], intentId=os.environ['_PY_INTENT'])
     enabled = verify.get('fulfillmentCodeHook', {}).get('enabled', False)
-    active = verify.get('fulfillmentCodeHook', {}).get('active', False)
+    active  = verify.get('fulfillmentCodeHook', {}).get('active', False)
     print(f"    Fulfillment code hook: enabled={enabled}, active={active}")
-
     if not enabled:
-        print("    ERROR: Fulfillment was not enabled!", file=sys.stderr)
-        sys.exit(1)
-
+        print('    ERROR: Fulfillment was not enabled!', file=sys.stderr); sys.exit(1)
 except Exception as e:
-    print(f"    ERROR: {e}", file=sys.stderr)
-    sys.exit(1)
+    print(f'    ERROR: {e}', file=sys.stderr); sys.exit(1)
 PYEOF
   echo "    ✅ Fulfillment code hook enabled on AmazonQInConnect intent"
 else
@@ -438,7 +417,7 @@ EOF
 
 BOT_VERSION=$(aws lexv2-models create-bot-version \
   --bot-id "${BOT_ID}" \
-  --bot-version-locale-specification "file://${LOCALE_SPEC_FILE}" \
+  --bot-version-locale-specification "$(file_uri "${LOCALE_SPEC_FILE}")" \
   --region "${REGION}" \
   --query "botVersion" --output text)
 
@@ -506,7 +485,7 @@ if [ "${EXISTING_ALIAS_ID}" != "None" ] && [ -n "${EXISTING_ALIAS_ID}" ]; then
     --bot-alias-id "${BOT_ALIAS_ID}" \
     --bot-alias-name "${ALIAS_NAME}" \
     --bot-version "${BOT_VERSION}" \
-    --bot-alias-locale-settings "file://${ALIAS_SETTINGS_FILE}" \
+    --bot-alias-locale-settings "$(file_uri "${ALIAS_SETTINGS_FILE}")" \
     --region "${REGION}" > /dev/null
   echo "    Updated: ${BOT_ALIAS_ID} -> v${BOT_VERSION}"
 else
@@ -514,7 +493,7 @@ else
     --bot-id "${BOT_ID}" \
     --bot-alias-name "${ALIAS_NAME}" \
     --bot-version "${BOT_VERSION}" \
-    --bot-alias-locale-settings "file://${ALIAS_SETTINGS_FILE}" \
+    --bot-alias-locale-settings "$(file_uri "${ALIAS_SETTINGS_FILE}")" \
     --region "${REGION}" \
     --query "botAliasId" --output text)
   echo "    Created: ${BOT_ALIAS_ID}"
@@ -586,7 +565,7 @@ EOF
 
 aws connect associate-bot \
   --instance-id "${CONNECT_INSTANCE_ID}" \
-  --lex-v2-bot "file://${LEX_BOT_FILE}" \
+  --lex-v2-bot "$(file_uri "${LEX_BOT_FILE}")" \
   --region "${REGION}" 2>/dev/null \
   && echo "    Associated!" \
   || echo "    Already associated (OK)"
@@ -597,70 +576,40 @@ rm -f "${LEX_BOT_FILE}"
 echo ""
 echo ">>> Step 11: Final verification..."
 
-python3 << PYEOF
-import boto3, json
-
-client = boto3.client('lexv2-models', region_name='${REGION}')
-
-# Verify intent fulfillment on published version
-intent = client.describe_intent(
-    botId='${BOT_ID}',
-    botVersion='${BOT_VERSION}',
-    localeId='${LOCALE_ID}',
-    intentId='${QNA_INTENT_ID}'
-)
+export _PY_REGION="${REGION}" _PY_BOT="${BOT_ID}" _PY_LOCALE="${LOCALE_ID}" \
+       _PY_INTENT="${QNA_INTENT_ID}" _PY_VER="${BOT_VERSION}" _PY_ALIAS="${BOT_ALIAS_ID}"
+run_py << 'PYEOF'
+import boto3, os
+client = boto3.client('lexv2-models', region_name=os.environ['_PY_REGION'])
+intent = client.describe_intent(botId=os.environ['_PY_BOT'], botVersion=os.environ['_PY_VER'],
+    localeId=os.environ['_PY_LOCALE'], intentId=os.environ['_PY_INTENT'])
 fch = intent.get('fulfillmentCodeHook', {})
-print(f"  Intent (v${BOT_VERSION}): fulfillment enabled={fch.get('enabled', False)}, active={fch.get('active', False)}")
-
-# Verify alias
-alias_resp = client.describe_bot_alias(
-    botId='${BOT_ID}',
-    botAliasId='${BOT_ALIAS_ID}'
-)
+ver = os.environ['_PY_VER']
+print(f"  Intent (v{ver}): fulfillment enabled={fch.get('enabled', False)}, active={fch.get('active', False)}")
+alias_resp = client.describe_bot_alias(botId=os.environ['_PY_BOT'], botAliasId=os.environ['_PY_ALIAS'])
 alias_version = alias_resp.get('botVersion', 'UNKNOWN')
-locale_settings = alias_resp.get('botAliasLocaleSettings', {})
-en_us = locale_settings.get('en_US', {})
-hook_spec = en_us.get('codeHookSpecification', {})
-lambda_hook = hook_spec.get('lambdaCodeHook', {})
-lambda_arn = lambda_hook.get('lambdaARN', 'NOT SET')
-
+en_us = alias_resp.get('botAliasLocaleSettings', {}).get('en_US', {})
+lambda_arn = en_us.get('codeHookSpecification', {}).get('lambdaCodeHook', {}).get('lambdaARN', 'NOT SET')
 print(f"  Alias '{alias_resp.get('botAliasName')}': version={alias_version}")
 print(f"  Alias Lambda: {lambda_arn}")
-
-# Verify postFulfillmentStatusSpecification steps
 pfs = fch.get('postFulfillmentStatusSpecification', {})
 success_step = pfs.get('successNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
 failure_step = pfs.get('failureNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
 timeout_step = pfs.get('timeoutNextStep', {}).get('dialogAction', {}).get('type', 'UNKNOWN')
-
 print(f"  PostFulfillment steps: success={success_step}, failure={failure_step}, timeout={timeout_step}")
-
-# Validation checks — errors list MUST be defined first
 errors = []
-
-if not fch.get('enabled', False):
-    errors.append("Fulfillment NOT enabled on QInConnect intent")
-if lambda_arn == 'NOT SET':
-    errors.append("Lambda ARN NOT set on alias locale settings")
-if alias_version != '${BOT_VERSION}':
-    errors.append(f"Alias points to v{alias_version}, expected v${BOT_VERSION}")
-if success_step != 'EndConversation':
-    errors.append(f"successNextStep is '{success_step}' — MUST be 'EndConversation' for payment routing")
-if failure_step != 'EndConversation':
-    errors.append(f"failureNextStep is '{failure_step}' — should be 'EndConversation'")
-if timeout_step != 'EndConversation':
-    errors.append(f"timeoutNextStep is '{timeout_step}' — should be 'EndConversation'")
-
+if not fch.get('enabled', False): errors.append('Fulfillment NOT enabled on QInConnect intent')
+if lambda_arn == 'NOT SET': errors.append('Lambda ARN NOT set on alias locale settings')
+if alias_version != ver: errors.append(f'Alias points to v{alias_version}, expected v{ver}')
+if success_step != 'EndConversation': errors.append(f"successNextStep is '{success_step}' - MUST be 'EndConversation'")
+if failure_step != 'EndConversation': errors.append(f"failureNextStep is '{failure_step}' - should be 'EndConversation'")
+if timeout_step != 'EndConversation': errors.append(f"timeoutNextStep is '{timeout_step}' - should be 'EndConversation'")
 if errors:
-    print("")
-    print("  ❌ VALIDATION ERRORS:")
-    for e in errors:
-        print(f"     - {e}")
-    print("")
-    print("  The bot may not route payments correctly!")
+    print('\n  \u274c VALIDATION ERRORS:')
+    [print(f'     - {e}') for e in errors]
+    print('\n  The bot may not route payments correctly!')
 else:
-    print("")
-    print("  ✅ All checks passed!")
+    print('\n  \u2705 All checks passed!')
 PYEOF
 
 # ─── Summary ─────────────────────────────────────────────────────

@@ -4,6 +4,7 @@
 
 - AWS CLI v2 configured with appropriate credentials
 - Python 3.12+, Node.js 20.x+
+  > **Note:** Use `python3` or `python` depending on your environment. Run `python3 --version` or `python --version` to confirm.
 - Amazon Connect instance created
 - Bedrock model access enabled (Nova Sonic)
 - An S3 bucket for CloudFormation templates (referenced in `env.sh`)

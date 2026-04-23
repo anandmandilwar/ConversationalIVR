@@ -18,6 +18,51 @@ LAMBDAS_DIR="${PROJECT_ROOT}/lambdas"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
+# Detect Python
+PY=""
+for candidate in python3 python; do
+  if command -v "$candidate" &>/dev/null; then
+    PY=$(command -v "$candidate")
+    break
+  fi
+done
+[ -z "$PY" ] && echo "ERROR: Python not found" && exit 1
+
+# Cross-platform file:// URI helper
+file_uri() {
+  local path="$1"
+  if command -v cygpath &>/dev/null; then
+    echo "fileb://$(cygpath -w "$path")"
+  else
+    echo "fileb://$path"
+  fi
+}
+
+# Cross-platform zip: uses Python zipfile so 'zip' binary is not required
+make_zip() {
+  local src_dir="$1"
+  local out_zip="$2"
+  local _f
+  _f=$(mktemp "${TMPDIR:-/tmp}/mkzip_XXXXXX")
+  mv "$_f" "${_f}.py"
+  _f="${_f}.py"
+  cat > "$_f" << 'PYEOF'
+import zipfile, os, sys
+src = sys.argv[1]
+out = sys.argv[2]
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk(src):
+        for f in files:
+            abs_path = os.path.join(root, f)
+            arc_name = os.path.relpath(abs_path, src)
+            zf.write(abs_path, arc_name)
+PYEOF
+  "$PY" "$_f" "$src_dir" "$out_zip"
+  local rc=$?
+  rm -f "$_f"
+  return $rc
+}
+
 # ============================================================
 # Lambda mapping: FUNCTION_NAME|HANDLER|LOCAL_SOURCE_DIR
 # ============================================================
@@ -86,23 +131,23 @@ for MAPPING in "${MAPPINGS[@]}"; do
     mkdir -p "${PACKAGE_DIR}"
     pip3 install -q -r "${LOCAL_PATH}/requirements.txt" -t "${PACKAGE_DIR}" 2>/dev/null
     cp "${LOCAL_PATH}"/*.py "${PACKAGE_DIR}/" 2>/dev/null || true
-    (cd "${PACKAGE_DIR}" && zip -qr "${ZIP_FILE}" .)
+    make_zip "${PACKAGE_DIR}" "${ZIP_FILE}"
   # Install dependencies if package.json exists (Node.js)
   elif [ -f "${LOCAL_PATH}/package.json" ]; then
     PACKAGE_DIR="${TMP_DIR}/pkg-${FUNC_NAME}"
     mkdir -p "${PACKAGE_DIR}"
-    cp "${LOCAL_PATH}"/* "${PACKAGE_DIR}/"
+    cp -r "${LOCAL_PATH}/"* "${PACKAGE_DIR}/"
     (cd "${PACKAGE_DIR}" && npm install --production --silent 2>/dev/null)
-    (cd "${PACKAGE_DIR}" && zip -qr "${ZIP_FILE}" .)
+    make_zip "${PACKAGE_DIR}" "${ZIP_FILE}"
   else
-    (cd "${LOCAL_PATH}" && zip -qr "${ZIP_FILE}" .)
+    make_zip "${LOCAL_PATH}" "${ZIP_FILE}"
   fi
 
   echo -n "  ${FUNC_NAME}..."
 
   aws lambda update-function-code \
     --function-name "${FUNC_NAME}" \
-    --zip-file "fileb://${ZIP_FILE}" \
+    --zip-file "$(file_uri "${ZIP_FILE}")" \
     --region "${REGION}" > /dev/null
 
   aws lambda wait function-updated \
@@ -169,7 +214,7 @@ for MAPPING in "${MAPPINGS[@]}"; do
   if [ "${ENV_VARS}" = "null" ] || [ -z "${ENV_VARS}" ]; then
     echo "  ${FUNC_NAME}: ⚠️  No env vars set"
   else
-    VAR_COUNT=$(echo "${ENV_VARS}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+    VAR_COUNT=$(echo "${ENV_VARS}" | "$PY" -c "import sys,json; print(len(json.load(sys.stdin)))")
     echo "  ${FUNC_NAME}: ✅ ${VAR_COUNT} env var(s)"
   fi
 done
