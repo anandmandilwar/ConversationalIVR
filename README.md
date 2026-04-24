@@ -180,7 +180,6 @@ See [docs/deployment-guide.md](docs/deployment-guide.md) for the full step-by-st
 
 - No AWS account IDs, ARNs, or credentials are stored in this repository
 - All environment-specific values use placeholders — configure via `env.sh`
-- Run `./scripts/utilities/sanitize-check.sh` before committing to verify
 
 ---
 
